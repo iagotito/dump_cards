@@ -1,64 +1,113 @@
 #!/usr/bin/env python3
-# pip3 install InquirerPy
-import base64, sys
+"""Github issues to redmine (issues2redmine)
+
+Usage:
+    i2r.py config
+    i2r.py issues fetch
+
+Options:
+    -h --help  Show this screen.
+    --version  Show version.
+"""
+import os
+
+import dotenv
 from InquirerPy import inquirer
-from atdumpmemex import *
-from atdumpcards import * 
 
-# Create empty lists for later appends
-orglist = []
-pchoice = []
-cchoice = []
+from modules.docopt import docopt
+from modules import github
 
-# Get org list from API
-for orgs in list_orgs():
-    orglist.append(orgs["organization"]["login"])
-if not orglist:
-    print("User isn't a member of any orgs")
-    sys.exit()
+I2R_DIR_PATH = os.getcwd()
+DOTENV_PATH = f"{I2R_DIR_PATH}/.env"
 
-# User selects org from list
-org = inquirer.select(message="Which org?",
-    choices=orglist).execute()
+dotenv.load_dotenv(DOTENV_PATH)
+GITHUB_ACCESS_TOKEN = os.environ.get("GITHUB_ACCESS_TOKEN", None)
 
-# Get regular projects from API
-json_projects = list_projects(org)
-for project in json_projects:
-    pchoice.append(str(project["number"])+' '+str(project["id"])
-        +' '+project["name"])
-#Get beta projects from API
-json_bprojects = list_memex_projects(org)
-for node in json_bprojects["data"]["organization"]["projectsNext"]["nodes"]:
-    #proj_num = str(node["number"])
-    proj_id = node["id"]
-    if not node["closed"]:
-        pchoice.append('b '+proj_id+' '+node["title"])
-if not pchoice:
-    print("No projects found")
-    sys.exit()
-# User selects project from list
-pselect = inquirer.select(message="Which project?",
-    choices=pchoice).execute()
-project_id = pselect.partition(" ")[2].partition(" ")[0]
-# Beta projects
-if pselect.partition(" ")[0] == 'b':
-    json_columns = list_memex_columns(project_id)
-    if not json_columns:
-        print("No columns found")
-        sys.exit()
-    column_id = inquirer.select(message="Which column?",
-       choices=json_columns).execute().partition(" ")[0]
-    list_memex_cards(column_id,project_id)
-    print("Exported: "+column_id+".csv")
-else:
-# Regular projects
-    json_columns = list_project_columns(project_id)
-    for column in json_columns:
-        cchoice.append(str(column["id"])+' '+column["name"])
-    if not cchoice:
-        print("No columns found")
-        sys.exit()
-    column_id = inquirer.select(message="Which column?",
-       choices=cchoice).execute().partition(" ")[0]
-    list_project_cards(column_id)
-    print("Exported: "+column_id+".csv")
+
+def _abort(message):
+    print(message)
+    exit()
+
+
+def config():
+    try:
+        github_access_token = inquirer.secret(
+            message=f"Your GitHub access token{' (blank to use current GitHub token)' if GITHUB_ACCESS_TOKEN is not None else ''}: ",
+            transformer=lambda _: "[hidden]",
+            filter=lambda text: text.replace('\n', ''),
+            validate=lambda text: text or GITHUB_ACCESS_TOKEN
+        ).execute()
+    except KeyboardInterrupt:
+        _abort("Operation cancelled.")
+
+    # save the GITHUB_ACCESS_TOKEN now so if there is an error when geting
+    # the orgs and projects, you don't have to add the github token again
+    if not github_access_token: github_access_token = GITHUB_ACCESS_TOKEN
+    dotenv.set_key(dotenv_path=DOTENV_PATH, key_to_set="GITHUB_ACCESS_TOKEN", value_to_set=github_access_token)
+
+    try:
+        org_list = github.get_orgs(github_access_token)
+    except AssertionError as e:
+        _abort(str(e))
+
+    if not org_list:
+        print("User isn't a member of any orgs")
+        exit()
+
+    try:
+        org_login = inquirer.select(
+            message=f"Select your organization:",
+            choices=org_list
+        ).execute()
+    except KeyboardInterrupt:
+        _abort("Operation cancelled.")
+
+    try:
+        projects_dict = github.get_projects(org_login, github_access_token)
+    except AssertionError as e:
+        _abort(str(e))
+
+    if not projects_dict:
+        print("No projects found")
+        exit()
+
+    try:
+        project_name = inquirer.select(
+            message=f"Select your project:",
+            choices=list(projects_dict.keys())
+        ).execute()
+    except KeyboardInterrupt:
+        _abort("Operation cancelled.")
+
+    project_id = projects_dict[project_name]
+
+    dotenv.set_key(DOTENV_PATH, "GITHUB_ACCESS_TOKEN", github_access_token)
+    dotenv.set_key(DOTENV_PATH, "ORGANIZATION_LOGIN", org_login)
+    dotenv.set_key(DOTENV_PATH, "PROJECT_ID", project_id)
+
+
+def main():
+    arguments = docopt(__doc__, version="i2r 0.1")
+    if not arguments:
+        print(__doc__)
+
+    if arguments.get("config"):
+        config()
+
+    if arguments.get("issues"):
+        print("Not implemented yet.")
+
+
+if __name__ == "__main__":
+    main()
+
+# # Beta projects
+# if pselect.partition(" ")[0] == 'b':
+    # json_columns = list_memex_columns(project_id)
+    # if not json_columns:
+        # print("No columns found")
+        # sys.exit()
+    # column_id = inquirer.select(message="Which column?",
+            # choices=json_columns).execute().partition(" ")[0]
+    # list_memex_cards(column_id,project_id)
+    # print("Exported: "+column_id+".csv")
