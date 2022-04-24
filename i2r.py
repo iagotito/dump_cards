@@ -4,6 +4,7 @@
 Usage:
     i2r.py config
     i2r.py issues fetch
+    i2r.py test
 
 Options:
     -h --help  Show this screen.
@@ -95,19 +96,11 @@ def main():
         config()
 
     if arguments.get("issues"):
-        print("Not implemented yet.")
+        if arguments.get("fetch"):
+            print(github.fetch_issues())
 
+    if arguments.get("test"):
+        github.test()
 
 if __name__ == "__main__":
     main()
-
-# # Beta projects
-# if pselect.partition(" ")[0] == 'b':
-    # json_columns = list_memex_columns(project_id)
-    # if not json_columns:
-        # print("No columns found")
-        # sys.exit()
-    # column_id = inquirer.select(message="Which column?",
-            # choices=json_columns).execute().partition(" ")[0]
-    # list_memex_cards(column_id,project_id)
-    # print("Exported: "+column_id+".csv")
